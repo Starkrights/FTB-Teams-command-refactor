@@ -4,9 +4,11 @@ import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
 import dev.architectury.platform.Platform;
 import dev.ftb.mods.ftbteams.FTBTeamsAPIImpl;
 import dev.ftb.mods.ftbteams.api.FTBTeamsAPI;
@@ -20,8 +22,10 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.GameProfileArgument;
+import net.minecraft.commands.arguments.MessageArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 
 import java.util.Collection;
 import java.util.Comparator;
@@ -29,24 +33,58 @@ import java.util.UUID;
 import java.util.function.Predicate;
 
 public class FTBTeamsCommands {
-	public void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+    /**
+     * Important concepts
+     *  - Player-Party:
+     *      - A unique-per-player team generated for all players upon first-join.
+     *      - The fallback team for the play if not a member of a Party-Team
+     *  - Party-Team:
+     *      - A created party, owned/attributed by a player.
+     *      - A player can only be a member of One party at a time, and cannot create
+     *        a new Party-Team if currently a member of another (NB, Party-Team != Player-Party).
+     *  - Server-Team:
+     *      - A non player-joinable party, creatable only by server admins.
+     *
+     */
+    private static class CommandBuilders {
+        /**
+         * /ftbteams party (...)
+         *  - Should encompass all regular-player party functions, eg:
+         *      - Party creation/management/configuration, joining/leaving, etc.
+         *  - Management/config commands require appropriate permissions for the relevant party
+         *  - Admin (server op) management is handled under the /ftbteams admin (...) node.
+         */
+        static LiteralArgumentBuilder<CommandSourceStack> party = Commands.literal("party")
+            /**
+             * /ftbteams party create <party name...>
+             *  - Should create a new Party-Team owned by the calling player
+             *  - Not shown to players who are already a member of a Party-Team
+             */
+            .then(Commands.literal("create")
+                .requires(FTBTeamsCommands::hasNoPartyTeam)
+                .then(Commands.argument("name", StringArgumentType.greedyString())
+                    .executes(FTBTeamsCommands::tryCreateParty)
+                )
+                .executes(FTBTeamsCommands::tryCreateParty)
+            );
+
+        static LiteralArgumentBuilder<CommandSourceStack> admin = Commands.literal("admin");
+    }
+    public void register(CommandDispatcher<CommandSourceStack> dispatcher){
+        dispatcher.register(CommandBuilders.party);
+        dispatcher.register(CommandBuilders.admin);
+    }
+	public void oldRegister(CommandDispatcher<CommandSourceStack> dispatcher) {
 		dispatcher.register(Commands.literal("ftbteams")
 				.then(Commands.literal("party")
-						.then(Commands.literal("create")
-								.requires(this::hasNoParty)
-								.then(Commands.argument("name", StringArgumentType.greedyString())
-										.executes(ctx -> tryCreateParty(ctx.getSource(), StringArgumentType.getString(ctx, "name")))
-								)
-								.executes(ctx -> tryCreateParty(ctx.getSource(), ""))
-						)
 						.then(Commands.literal("join")
-								.requires(this::hasNoParty)
+								.requires(FTBTeamsCommands::hasNoPartyTeam)
 								.then(createTeamArg(TeamType.PARTY)
 										.executes(ctx -> partyTeamArg(ctx, TeamRank.INVITED).join(ctx.getSource().getPlayerOrException()))
 								)
 						)
 						.then(Commands.literal("decline")
-								.requires(this::hasNoParty)
+								.requires(FTBTeamsCommands::hasNoPartyTeam)
 								.then(createTeamArg(TeamType.PARTY)
 										.executes(ctx -> partyTeamArg(ctx, TeamRank.INVITED).declineInvitation(ctx.getSource()))
 								)
@@ -210,7 +248,17 @@ public class FTBTeamsCommands {
 		return StringArgumentType.getString(context, name);
 	}
 
-	private boolean hasNoParty(CommandSourceStack source) {
+    /**
+     * Determines party-membership of a CommandSourceStack's executing entity.
+     *
+     * @param source
+     * @return <b>True if:</b>
+     *         <p>- Player is not a member of a Party-team
+     *         <p><b>False if:</b>
+     *         <p>- Player is only part of their own Player-Party
+     *         <p>- Executor is not a ServerPlayer
+     */
+	private static boolean hasNoPartyTeam(CommandSourceStack source) {
 		if (source.getEntity() instanceof ServerPlayer) {
 			return FTBTeamsAPI.api().getManager().getTeamForPlayerID(source.getEntity().getUUID())
 					.map(team -> !team.isPartyTeam())
@@ -281,11 +329,27 @@ public class FTBTeamsCommands {
 		return team;
 	}
 
-	private static int tryCreateParty(CommandSourceStack source, String partyName) throws CommandSyntaxException {
-		if (FTBTeamsAPIImpl.INSTANCE.isPartyCreationFromAPIOnly()) {
-			throw TeamArgument.API_OVERRIDE.create();
-		}
-		return TeamManagerImpl.INSTANCE.createParty(source.getPlayerOrException(), partyName).getLeft();
+	private static int tryCreateParty(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        if (FTBTeamsAPIImpl.INSTANCE.isPartyCreationFromAPIOnly()) {
+            throw TeamArgument.API_OVERRIDE.create();
+        }
+
+        // Die if the command executor isn't a player - eg, the server console, or a command block.
+        Entity sourceExecutor = ctx.getSource().getEntity();
+        if(!(sourceExecutor instanceof ServerPlayer player)){
+            throw TeamArgument.CALLER_NOT_PLAYER.create();
+        }
+
+        // If the incoming command has a "name" parameter, use that. Otherwise, default to ""
+        // StringArgumentType.getString() calls CommandContext.getArgument(). That function throws
+        // if the specified argument (here it's "name") doesn't exist.
+        // We do this dance to avoid an expensive exception throw.
+        // We could also just have a separate function for the no-name case, but I'm trying to keep to one-function per 'actual' command
+        String partyName = ctx.getNodes().stream().anyMatch(e -> e.getNode().getName().equals("name"))
+                ? StringArgumentType.getString(ctx, "name")
+                : "";
+
+        return TeamManagerImpl.INSTANCE.createParty(player, partyName).getLeft();
 	}
 
 	private static int info(CommandSourceStack source, Team team) {
