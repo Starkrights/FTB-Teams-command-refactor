@@ -71,8 +71,10 @@ public class FTBTeamsCommands {
         static LiteralArgumentBuilder<CommandSourceStack> admin = Commands.literal("admin");
     }
     public void register(CommandDispatcher<CommandSourceStack> dispatcher){
-        dispatcher.register(CommandBuilders.party);
-        dispatcher.register(CommandBuilders.admin);
+        dispatcher.register(Commands.literal("ftbteams")
+                .then(CommandBuilders.party)
+                .then(CommandBuilders.admin)
+        );
     }
 	public void oldRegister(CommandDispatcher<CommandSourceStack> dispatcher) {
 		dispatcher.register(Commands.literal("ftbteams")
