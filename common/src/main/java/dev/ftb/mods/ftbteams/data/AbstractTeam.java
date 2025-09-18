@@ -182,18 +182,23 @@ public abstract class AbstractTeam extends AbstractTeamBase {
 		return Command.SINGLE_SUCCESS;
 	}
 
-	public int declineInvitation(CommandSourceStack source) throws CommandSyntaxException {
-		ServerPlayer player = source.getPlayerOrException();
-
+    /**
+     * Returns true on successful invitation-decline
+     * <p>Returns false if the player was not invited to the team
+     *
+     * @param player - The player declining the invite
+     * @return
+     * @throws CommandSyntaxException
+     */
+	public boolean declineInvitation(ServerPlayer player) throws CommandSyntaxException {
 		if (getRankForPlayer(player.getUUID()) == TeamRank.INVITED) {
 			ranks.put(player.getUUID(), TeamRank.ALLY);
-			source.sendSuccess(() -> Component.translatable("ftbteams.message.declined"), true);
 			markDirty();
 			manager.syncToAll(this);
-			return Command.SINGLE_SUCCESS;
+			return true;
 		} else {
 			FTBTeams.LOGGER.warn("ignore invitation decline for player {} to team {} (not invited)", player.getUUID(), getId());
-			return 0;
+			return false;
 		}
 	}
 

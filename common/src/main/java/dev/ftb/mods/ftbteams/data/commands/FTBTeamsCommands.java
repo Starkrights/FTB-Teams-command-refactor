@@ -81,6 +81,7 @@ public class FTBTeamsCommands {
                                     // Die if the command executor isn't a player - eg, the server console, or a command block.
                                     Entity sourceExecutor = ctx.getSource().getEntity();
                                     if(!(sourceExecutor instanceof ServerPlayer player)){
+                                        // TODO: On second pass - Should commands be throwing? Maybe rather we ctx.getSource().sendFailure()
                                         throw EntityArgument.ERROR_ONLY_PLAYERS_ALLOWED.create();
                                     }
 
@@ -113,7 +114,12 @@ public class FTBTeamsCommands {
                                         throw TeamArgumentType.NOT_INVITED.create(team.getName());
                                     }
 
-                                    return team.declineInvitation(ctx.getSource());
+                                    boolean result = team.declineInvitation(player);
+                                    if(result){
+                                        ctx.getSource().sendSuccess(() -> Component.translatable("ftbteams.message.declined"), true);
+                                    }
+
+                                    return 1;
                                 })
                         )
                 );
@@ -130,12 +136,6 @@ public class FTBTeamsCommands {
 	public void oldRegister(CommandDispatcher<CommandSourceStack> dispatcher) {
 		dispatcher.register(Commands.literal("ftbteams")
 				.then(Commands.literal("party")
-						.then(Commands.literal("decline")
-								.requires(FTBTeamsCommands::hasNoPartyTeam)
-								.then(createTeamArg(TeamType.PARTY)
-										.executes(ctx -> partyTeamArg(ctx, TeamRank.INVITED).declineInvitation(ctx.getSource()))
-								)
-						)
 						.then(Commands.literal("leave")
 								.requires(source -> hasParty(source, TeamRank.MEMBER))
 								.executes(ctx -> getPartyTeam(ctx, TeamRank.MEMBER).leave(ctx.getSource().getPlayerOrException().getUUID()))
