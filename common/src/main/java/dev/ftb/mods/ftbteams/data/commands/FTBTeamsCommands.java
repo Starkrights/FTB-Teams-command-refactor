@@ -26,6 +26,7 @@ import net.minecraft.commands.arguments.GameProfileArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.scores.PlayerTeam;
 
 import java.util.Collection;
 import java.util.Comparator;
@@ -75,6 +76,7 @@ public class FTBTeamsCommands {
                  *  - {team} will be prepopulated with teams the player has active invites to.
                  */
                 .then(Commands.literal("join")
+                        // TODO: Check, is this correct? does hasNoPartyTeam return true if you're an 'invited' 'member' of a team?
                         .requires(FTBTeamsCommands::hasNoPartyTeam)
                         .then(Commands.argument("team", TeamArgumentType.party())
                                 .executes(ctx -> {
@@ -101,6 +103,7 @@ public class FTBTeamsCommands {
                  *  - {team} will be prepopulated with teams the player has active invites to.
                  */
                 .then(Commands.literal("decline")
+                        // TODO: Predicate for having standing party invites. - ArgumentType for teams w/ standing invites.
                         .then(Commands.argument("team", TeamArgumentType.party())
                                 .executes(ctx -> {
                                     // Die if the command executor isn't a player - eg, the server console, or a command block.
@@ -122,6 +125,25 @@ public class FTBTeamsCommands {
                                     return 1;
                                 })
                         )
+                )
+                .then(Commands.literal("leave")
+                        //TODO: predicate for BEING a member of a team (don't show leave unless a member of a party)
+                        //      + ArgumentType for current team memberships.
+                        .executes(ctx -> {
+                            // Die if the command executor isn't a player - eg, the server console, or a command block.
+                            Entity sourceExecutor = ctx.getSource().getEntity();
+                            if(!(sourceExecutor instanceof ServerPlayer player)){
+                                throw EntityArgument.ERROR_ONLY_PLAYERS_ALLOWED.create();
+                            }
+
+                            // I hate that the only option is to throw here.
+                            PartyTeam team = (PartyTeam) TeamManagerImpl.INSTANCE.getTeamForPlayer(player).orElseThrow();
+                            // MemberOrBetter implies an actual member of the team. (ie NOT: Enemy,Ally,None,Invited)
+                            if(team.getRankForPlayer(player.getUUID()).isMemberOrBetter()){
+                                team.leave(player.getUUID());
+                            };
+                            return 1;
+                        })
                 );
 
 
@@ -136,10 +158,6 @@ public class FTBTeamsCommands {
 	public void oldRegister(CommandDispatcher<CommandSourceStack> dispatcher) {
 		dispatcher.register(Commands.literal("ftbteams")
 				.then(Commands.literal("party")
-						.then(Commands.literal("leave")
-								.requires(source -> hasParty(source, TeamRank.MEMBER))
-								.executes(ctx -> getPartyTeam(ctx, TeamRank.MEMBER).leave(ctx.getSource().getPlayerOrException().getUUID()))
-						)
 						.then(Commands.literal("invite")
 								.requires(source -> hasParty(source, TeamRank.OFFICER))
 								.then(Commands.argument("players", GameProfileArgument.gameProfile())
@@ -314,6 +332,10 @@ public class FTBTeamsCommands {
 
 		return false;
 	}
+
+    private static boolean isMemberOfParty(CommandSourceStack source){
+
+    }
 
 	private boolean hasParty(CommandSourceStack source, TeamRank rank) {
 		if (source.getEntity() instanceof ServerPlayer) {
