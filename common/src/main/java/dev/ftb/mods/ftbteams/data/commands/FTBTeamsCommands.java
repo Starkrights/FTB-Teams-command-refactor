@@ -26,7 +26,6 @@ import net.minecraft.commands.arguments.GameProfileArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.scores.PlayerTeam;
 
 import java.util.Collection;
 import java.util.Comparator;
@@ -64,7 +63,7 @@ public class FTBTeamsCommands {
                  *  Relevant function: FTBTeamsCommands::tryCreateParty
                  */
                 .then(Commands.literal("create")
-                        .requires(FTBTeamsCommands::hasNoPartyTeam)
+                        .requires(FTBTeamsCommands.Predicates::hasNoPartyTeam)
                         .then(Commands.argument("name", StringArgumentType.greedyString())
                                 .executes(FTBTeamsCommands::tryCreateParty)
                         )
@@ -77,7 +76,7 @@ public class FTBTeamsCommands {
                  */
                 .then(Commands.literal("join")
                         // TODO: Check, is this correct? does hasNoPartyTeam return true if you're an 'invited' 'member' of a team?
-                        .requires(FTBTeamsCommands::hasNoPartyTeam)
+                        .requires(FTBTeamsCommands.Predicates::hasNoPartyTeam)
                         .then(Commands.argument("team", TeamArgumentType.party())
                                 .executes(ctx -> {
                                     // Die if the command executor isn't a player - eg, the server console, or a command block.
@@ -127,8 +126,7 @@ public class FTBTeamsCommands {
                         )
                 )
                 .then(Commands.literal("leave")
-                        //TODO: predicate for BEING a member of a team (don't show leave unless a member of a party)
-                        //      + ArgumentType for current team memberships.
+                        .requires(ctx -> Predicates.hasPartyAndMinRank(ctx, TeamRank.MEMBER)) // Potential TODO: add thin predicates, convert to Method Reference
                         .executes(ctx -> {
                             // Die if the command executor isn't a player - eg, the server console, or a command block.
                             Entity sourceExecutor = ctx.getSource().getEntity();
@@ -159,19 +157,19 @@ public class FTBTeamsCommands {
 		dispatcher.register(Commands.literal("ftbteams")
 				.then(Commands.literal("party")
 						.then(Commands.literal("invite")
-								.requires(source -> hasParty(source, TeamRank.OFFICER))
+								.requires(source -> Predicates.hasPartyAndMinRank(source, TeamRank.OFFICER))
 								.then(Commands.argument("players", GameProfileArgument.gameProfile())
 										.executes(ctx -> getPartyTeam(ctx, TeamRank.OFFICER).invite(ctx.getSource().getPlayerOrException(), GameProfileArgument.getGameProfiles(ctx, "players")))
 								)
 						)
 						.then(Commands.literal("kick")
-								.requires(source -> hasParty(source, TeamRank.OFFICER))
+								.requires(source -> Predicates.hasPartyAndMinRank(source, TeamRank.OFFICER))
 								.then(Commands.argument("players", GameProfileArgument.gameProfile())
 										.executes(ctx -> getPartyTeam(ctx, TeamRank.OFFICER).kick(ctx.getSource(), GameProfileArgument.getGameProfiles(ctx, "players")))
 								)
 						)
 						.then(Commands.literal("transfer_ownership")
-								.requires(source -> hasParty(source, TeamRank.OWNER))
+								.requires(source -> Predicates.hasPartyAndMinRank(source, TeamRank.OWNER))
 								.then(Commands.argument("player_id", GameProfileArgument.gameProfile())
 										.executes(ctx -> partyTeamArg(ctx, TeamRank.OWNER).transferOwnership(ctx.getSource(), GameProfileArgument.getGameProfiles(ctx, "player_id")))
 								)
@@ -185,7 +183,7 @@ public class FTBTeamsCommands {
 								)
 						)
 						.then(Commands.literal("settings")
-								.requires(source -> hasParty(source, TeamRank.OWNER))
+								.requires(source -> Predicates.hasPartyAndMinRank(source, TeamRank.OWNER))
 								.then(Commands.argument("key", TeamPropertyArgument.create())
 										.then(Commands.argument("value", StringArgumentType.greedyString())
 												.executes(ctx -> getPartyTeam(ctx, TeamRank.OWNER).settings(ctx.getSource(), TeamPropertyArgument.get(ctx, "key"), string(ctx, "value")))
@@ -205,21 +203,21 @@ public class FTBTeamsCommands {
 								)
 						)
 						.then(Commands.literal("allies")
-								.requires(source -> hasParty(source, TeamRank.MEMBER))
+								.requires(source -> Predicates.hasPartyAndMinRank(source, TeamRank.MEMBER))
 								.then(Commands.literal("add")
-										.requires(source -> hasParty(source, TeamRank.OFFICER))
+										.requires(source -> Predicates.hasPartyAndMinRank(source, TeamRank.OFFICER))
 										.then(Commands.argument("player", GameProfileArgument.gameProfile())
 												.executes(ctx -> getPartyTeam(ctx, TeamRank.OFFICER).addAlly(ctx.getSource(), GameProfileArgument.getGameProfiles(ctx, "player")))
 										)
 								)
 								.then(Commands.literal("remove")
-										.requires(source -> hasParty(source, TeamRank.OFFICER))
+										.requires(source -> Predicates.hasPartyAndMinRank(source, TeamRank.OFFICER))
 										.then(Commands.argument("player", GameProfileArgument.gameProfile())
 												.executes(ctx -> getPartyTeam(ctx, TeamRank.OFFICER).removeAlly(ctx.getSource(), GameProfileArgument.getGameProfiles(ctx, "player")))
 										)
 								)
 								.then(Commands.literal("list")
-										.requires(source -> hasParty(source, TeamRank.MEMBER))
+										.requires(source -> Predicates.hasPartyAndMinRank(source, TeamRank.MEMBER))
 										.executes(ctx -> getPartyTeam(ctx, TeamRank.MEMBER).listAllies(ctx.getSource()))
 								)
 						)
@@ -313,40 +311,38 @@ public class FTBTeamsCommands {
 		return StringArgumentType.getString(context, name);
 	}
 
-    /**
-     * Determines party-membership of a CommandSourceStack's executing entity.
-     *
-     * @param source
-     * @return <b>True if:</b>
-     *         <p>- Player is not a member of a Party-team
-     *         <p><b>False if:</b>
-     *         <p>- Player is only part of their own Player-Party
-     *         <p>- Executor is not a ServerPlayer
-     */
-	private static boolean hasNoPartyTeam(CommandSourceStack source) {
-		if (source.getEntity() instanceof ServerPlayer) {
-			return FTBTeamsAPI.api().getManager().getTeamForPlayerID(source.getEntity().getUUID())
-					.map(team -> !team.isPartyTeam())
-					.orElse(false);
-		}
+    private static class Predicates {
+        /**
+         * Determines party-membership of a CommandSourceStack's executing entity.
+         *
+         * @param source
+         * @return <b>True if:</b>
+         *         <p>- Player is not a member of a Party-team
+         *         <p><b>False if:</b>
+         *         <p>- Player is only part of their own Player-Party
+         *         <p>- Executor is not a ServerPlayer
+         */
+        private static boolean hasNoPartyTeam(CommandSourceStack source) {
+            if (source.getEntity() instanceof ServerPlayer) {
+                return FTBTeamsAPI.api().getManager().getTeamForPlayerID(source.getEntity().getUUID())
+                        .map(team -> !team.isPartyTeam())
+                        .orElse(false);
+            }
 
-		return false;
-	}
+            return false;
+        }
 
-    private static boolean isMemberOfParty(CommandSourceStack source){
+        private static boolean hasPartyAndMinRank(CommandSourceStack source, TeamRank rank) {
+            if (source.getEntity() instanceof ServerPlayer) {
+                UUID playerId = source.getEntity().getUUID();
+                return FTBTeamsAPI.api().getManager().getTeamForPlayerID(playerId)
+                        .map(team -> team.isPartyTeam() && team.getRankForPlayer(playerId).isAtLeast(rank))
+                        .orElse(false);
+            }
 
+            return false;
+        }
     }
-
-	private boolean hasParty(CommandSourceStack source, TeamRank rank) {
-		if (source.getEntity() instanceof ServerPlayer) {
-			UUID playerId = source.getEntity().getUUID();
-			return FTBTeamsAPI.api().getManager().getTeamForPlayerID(playerId)
-					.map(team -> team.isPartyTeam() && team.getRankForPlayer(playerId).isAtLeast(rank))
-					.orElse(false);
-		}
-
-		return false;
-	}
 
 	private static Team getTeam(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
 		ServerPlayer player = context.getSource().getPlayerOrException();
