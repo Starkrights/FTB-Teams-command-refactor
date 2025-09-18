@@ -1,4 +1,4 @@
-package dev.ftb.mods.ftbteams.data;
+package dev.ftb.mods.ftbteams.data.commands;
 
 import com.google.gson.JsonObject;
 import com.mojang.authlib.GameProfile;
@@ -13,6 +13,7 @@ import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import dev.ftb.mods.ftbteams.api.FTBTeamsAPI;
 import dev.ftb.mods.ftbteams.api.Team;
+import dev.ftb.mods.ftbteams.data.TeamType;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -31,7 +32,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
-public class TeamArgument implements ArgumentType<TeamArgumentProvider> {
+public class TeamArgumentType implements ArgumentType<TeamArgumentProvider> {
 	public static final SimpleCommandExceptionType ALREADY_IN_PARTY = new SimpleCommandExceptionType(Component.translatable("ftbteams.already_in_party"));
 	public static final DynamicCommandExceptionType PLAYER_IN_PARTY = new DynamicCommandExceptionType(object -> Component.translatable("ftbteams.player_already_in_party", object));
 	public static final SimpleCommandExceptionType NOT_IN_PARTY = new SimpleCommandExceptionType(Component.translatable("ftbteams.not_in_party"));
@@ -49,19 +50,25 @@ public class TeamArgument implements ArgumentType<TeamArgumentProvider> {
 
 	private final TeamType type;
 
-    public static TeamArgument create() {
-		return new TeamArgument(null);
+    public static TeamArgumentType all()    { return new TeamArgumentType(null); }
+    public static TeamArgumentType player() { return new TeamArgumentType(TeamType.PLAYER); }
+    public static TeamArgumentType party()  { return new TeamArgumentType(TeamType.PARTY); }
+    public static TeamArgumentType server() { return new TeamArgumentType(TeamType.SERVER); }
+
+
+    public static TeamArgumentType create() {
+		return new TeamArgumentType(null);
 	}
 
-	public static TeamArgument create(TeamType type) {
-		return new TeamArgument(type);
+	public static TeamArgumentType create(TeamType type) {
+		return new TeamArgumentType(type);
 	}
 
-	public static Team get(CommandContext<CommandSourceStack> context, String name) throws CommandSyntaxException {
+	public static Team getTeam(CommandContext<CommandSourceStack> context, String name) throws CommandSyntaxException {
 		return context.getArgument(name, TeamArgumentProvider.class).getTeam(context.getSource());
 	}
 
-	private TeamArgument(@Nullable TeamType type) {
+	private TeamArgumentType(@Nullable TeamType type) {
         this.type = type;
     }
 
@@ -88,7 +95,7 @@ public class TeamArgument implements ArgumentType<TeamArgumentProvider> {
 		}
 
 		private CommandSyntaxException error() {
-			return TeamArgument.TEAM_NOT_FOUND.create(id);
+			return TeamArgumentType.TEAM_NOT_FOUND.create(id);
 		}
 
 		@Override
@@ -151,7 +158,7 @@ public class TeamArgument implements ArgumentType<TeamArgumentProvider> {
 		}
 	}
 
-	public static class Info implements ArgumentTypeInfo<TeamArgument, Info.Template> {
+	public static class Info implements ArgumentTypeInfo<TeamArgumentType, Info.Template> {
 		@Override
 		public void serializeToNetwork(Template template, FriendlyByteBuf buf) {
 			buf.writeNullable(template.teamType, FriendlyByteBuf::writeEnum);
@@ -170,11 +177,11 @@ public class TeamArgument implements ArgumentType<TeamArgumentProvider> {
 		}
 
 		@Override
-		public Template unpack(TeamArgument argumentType) {
+		public Template unpack(TeamArgumentType argumentType) {
 			return new Template(argumentType.type);
 		}
 
-		public final class Template implements ArgumentTypeInfo.Template<TeamArgument> {
+		public final class Template implements ArgumentTypeInfo.Template<TeamArgumentType> {
 			private final TeamType teamType;
 
 			public Template(TeamType teamType) {
@@ -182,12 +189,12 @@ public class TeamArgument implements ArgumentType<TeamArgumentProvider> {
 			}
 
 			@Override
-			public TeamArgument instantiate(CommandBuildContext commandBuildContext) {
-				return TeamArgument.create(teamType);
+			public TeamArgumentType instantiate(CommandBuildContext commandBuildContext) {
+				return TeamArgumentType.create(teamType);
 			}
 
 			@Override
-			public ArgumentTypeInfo<TeamArgument, ?> type() {
+			public ArgumentTypeInfo<TeamArgumentType, ?> type() {
 				return Info.this;
 			}
 		}

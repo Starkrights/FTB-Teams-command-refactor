@@ -9,6 +9,7 @@ import dev.ftb.mods.ftbteams.api.TeamRank;
 import dev.ftb.mods.ftbteams.api.event.PlayerTransferredTeamOwnershipEvent;
 import dev.ftb.mods.ftbteams.api.event.TeamAllyEvent;
 import dev.ftb.mods.ftbteams.api.event.TeamEvent;
+import dev.ftb.mods.ftbteams.data.commands.TeamArgumentType;
 import net.minecraft.ChatFormatting;
 import net.minecraft.Util;
 import net.minecraft.commands.CommandSourceStack;
@@ -66,10 +67,10 @@ public class PartyTeam extends AbstractTeam {
 
 	public int join(ServerPlayer player) throws CommandSyntaxException {
 		Team oldTeam = manager.getTeamForPlayer(player)
-				.orElseThrow(() -> TeamArgument.TEAM_NOT_FOUND.create(player.getUUID()));
+				.orElseThrow(() -> TeamArgumentType.TEAM_NOT_FOUND.create(player.getUUID()));
 
 		if (!(oldTeam instanceof PlayerTeam playerTeam)) {
-			throw TeamArgument.ALREADY_IN_PARTY.create();
+			throw TeamArgumentType.ALREADY_IN_PARTY.create();
 		}
 
 		UUID id = player.getUUID();
@@ -90,7 +91,7 @@ public class PartyTeam extends AbstractTeam {
 
 	public int invite(ServerPlayer inviter, Collection<GameProfile> profiles) throws CommandSyntaxException {
 		if (!FTBTUtils.canPlayerUseCommand(inviter, "ftbteams.party.invite")) {
-			throw TeamArgument.NO_PERMISSION.create();
+			throw TeamArgumentType.NO_PERMISSION.create();
 		}
 
 		for (GameProfile profile : profiles) {
@@ -132,12 +133,12 @@ public class PartyTeam extends AbstractTeam {
 	public int kick(CommandSourceStack from, Collection<GameProfile> players) throws CommandSyntaxException {
 		for (GameProfile player : players) {
 			UUID id = player.getId();
-			Team oldTeam = manager.getTeamForPlayerID(id).orElseThrow(TeamArgument.NOT_IN_PARTY::create);
+			Team oldTeam = manager.getTeamForPlayerID(id).orElseThrow(TeamArgumentType.NOT_IN_PARTY::create);
 
 			if (oldTeam != this) {
-				throw TeamArgument.NOT_IN_PARTY.create();
+				throw TeamArgumentType.NOT_IN_PARTY.create();
 			} else if (isOwner(id)) {
-				throw TeamArgument.CANT_KICK_OWNER.create();
+				throw TeamArgumentType.CANT_KICK_OWNER.create();
 			}
 
 			PlayerTeam team = manager.getPersonalTeamForPlayerID(id);
@@ -177,7 +178,7 @@ public class PartyTeam extends AbstractTeam {
 				sendMessage(from.getUUID(), Component.translatable("ftbteams.message.promoted", playerName).withStyle(ChatFormatting.GREEN));
 				changesMade = true;
 			} else {
-				throw TeamArgument.NOT_MEMBER.create(manager.getPlayerName(id), getName());
+				throw TeamArgumentType.NOT_MEMBER.create(manager.getPlayerName(id), getName());
 			}
 		}
 		if (changesMade) {
@@ -198,7 +199,7 @@ public class PartyTeam extends AbstractTeam {
 				sendMessage(from.getUUID(), Component.translatable("ftbteams.message.demoted", playerName).withStyle(ChatFormatting.GOLD));
 				changesMade = true;
 			} else {
-				throw TeamArgument.NOT_OFFICER.create(manager.getPlayerName(id), getName());
+				throw TeamArgumentType.NOT_OFFICER.create(manager.getPlayerName(id), getName());
 			}
 		}
 		if (changesMade) {
@@ -217,7 +218,7 @@ public class PartyTeam extends AbstractTeam {
 		// new owner must be in this party
 		UUID newOwnerID = toProfile.getId();
 		if (!getMembers().contains(newOwnerID)) {
-			throw TeamArgument.NOT_MEMBER.create(toProfile.toString(), getName());
+			throw TeamArgumentType.NOT_MEMBER.create(toProfile.toString(), getName());
 		}
 
 		if (owner.equals(newOwnerID)) {
@@ -260,7 +261,7 @@ public class PartyTeam extends AbstractTeam {
 		ServerPlayer player = FTBTeamsAPI.api().getManager().getServer().getPlayerList().getPlayer(id);
 
 		if (isOwner(id) && getMembers().size() > 1) {
-			throw TeamArgument.OWNER_CANT_LEAVE.create();
+			throw TeamArgumentType.OWNER_CANT_LEAVE.create();
 		}
 
 		// mark the player as being back in their personal team
@@ -292,7 +293,7 @@ public class PartyTeam extends AbstractTeam {
 
 	public int addAlly(CommandSourceStack source, Collection<GameProfile> players) throws CommandSyntaxException {
 		if (source.getPlayer() != null && !FTBTUtils.canPlayerUseCommand(source.getPlayer(), "ftbteams.party.allies.add")) {
-			throw TeamArgument.NO_PERMISSION.create();
+			throw TeamArgumentType.NO_PERMISSION.create();
 		}
 
 		UUID from = source.getEntity() == null ? Util.NIL_UUID : source.getEntity().getUUID();

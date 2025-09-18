@@ -1,4 +1,4 @@
-package dev.ftb.mods.ftbteams.data;
+package dev.ftb.mods.ftbteams.data.commands;
 
 import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.Command;
@@ -8,7 +8,6 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
-import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
 import dev.architectury.platform.Platform;
 import dev.ftb.mods.ftbteams.FTBTeamsAPIImpl;
 import dev.ftb.mods.ftbteams.api.FTBTeamsAPI;
@@ -18,11 +17,11 @@ import dev.ftb.mods.ftbteams.api.TeamRank;
 import dev.ftb.mods.ftbteams.api.event.TeamEvent;
 import dev.ftb.mods.ftbteams.api.event.TeamInfoEvent;
 import dev.ftb.mods.ftbteams.api.property.TeamPropertyArgument;
+import dev.ftb.mods.ftbteams.data.*;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.GameProfileArgument;
-import net.minecraft.commands.arguments.MessageArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -55,18 +54,48 @@ public class FTBTeamsCommands {
          *  - Admin (server op) management is handled under the /ftbteams admin (...) node.
          */
         static LiteralArgumentBuilder<CommandSourceStack> party = Commands.literal("party")
-            /**
-             * /ftbteams party create <party name...>
-             *  - Should create a new Party-Team owned by the calling player
-             *  - Not shown to players who are already a member of a Party-Team
-             */
-            .then(Commands.literal("create")
-                .requires(FTBTeamsCommands::hasNoPartyTeam)
-                .then(Commands.argument("name", StringArgumentType.greedyString())
-                    .executes(FTBTeamsCommands::tryCreateParty)
+                /**
+                 * /ftbteams party create <party name...>
+                 *  - Should create a new Party-Team owned by the calling player
+                 *  - Not shown to players who are already a member of a Party-Team
+                 *
+                 *  Relevant function: FTBTeamsCommands::tryCreateParty
+                 */
+                .then(Commands.literal("create")
+                        .requires(FTBTeamsCommands::hasNoPartyTeam)
+                        .then(Commands.argument("name", StringArgumentType.greedyString())
+                                .executes(FTBTeamsCommands::tryCreateParty)
+                        )
+                        .executes(FTBTeamsCommands::tryCreateParty)
                 )
-                .executes(FTBTeamsCommands::tryCreateParty)
-            );
+                /**
+                 * /ftbteams party join {team}
+                 *  - Joins the specified team.
+                 *  - {team} will be prepopulated with teams the player has active invites to.
+                 *
+                 *  Relevant Function: FTBTeamsCommands::joinParty
+                 */
+                .then(Commands.literal("join")
+                        .requires(FTBTeamsCommands::hasNoPartyTeam)
+                        .then(Commands.argument("team", TeamArgumentType.party())
+                                .executes(ctx -> {
+                                    // Die if the command executor isn't a player - eg, the server console, or a command block.
+                                    Entity sourceExecutor = ctx.getSource().getEntity();
+                                    if(!(sourceExecutor instanceof ServerPlayer player)){
+                                        throw TeamArgumentType.CALLER_NOT_PLAYER.create();
+                                    }
+
+                                    PartyTeam team = (PartyTeam) TeamArgumentType.getTeam(ctx, "team");
+                                    if (team.getRankForPlayer(player.getUUID()) != TeamRank.INVITED){
+                                        throw TeamArgumentType.NOT_INVITED.create(team.getName());
+                                    }
+
+                                    // I'm not sure what this return value implies, but I'm keeping it the way it was for now.
+                                    return team.join(player);
+                                })
+                        )
+                );
+
 
         static LiteralArgumentBuilder<CommandSourceStack> admin = Commands.literal("admin");
     }
@@ -79,12 +108,6 @@ public class FTBTeamsCommands {
 	public void oldRegister(CommandDispatcher<CommandSourceStack> dispatcher) {
 		dispatcher.register(Commands.literal("ftbteams")
 				.then(Commands.literal("party")
-						.then(Commands.literal("join")
-								.requires(FTBTeamsCommands::hasNoPartyTeam)
-								.then(createTeamArg(TeamType.PARTY)
-										.executes(ctx -> partyTeamArg(ctx, TeamRank.INVITED).join(ctx.getSource().getPlayerOrException()))
-								)
-						)
 						.then(Commands.literal("decline")
 								.requires(FTBTeamsCommands::hasNoPartyTeam)
 								.then(createTeamArg(TeamType.PARTY)
@@ -243,7 +266,7 @@ public class FTBTeamsCommands {
 	}
 
 	private static RequiredArgumentBuilder<CommandSourceStack, TeamArgumentProvider> createTeamArg(TeamType type) {
-		return Commands.argument("team", TeamArgument.create(type));
+		return Commands.argument("team", TeamArgumentType.create(type));
 	}
 
 	private static String string(CommandContext<?> context, String name) {
@@ -284,34 +307,34 @@ public class FTBTeamsCommands {
 	private static Team getTeam(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
 		ServerPlayer player = context.getSource().getPlayerOrException();
 		return FTBTeamsAPI.api().getManager().getTeamForPlayer(player)
-				.orElseThrow(() -> TeamArgument.TEAM_NOT_FOUND.create(player.getUUID()));
+				.orElseThrow(() -> TeamArgumentType.TEAM_NOT_FOUND.create(player.getUUID()));
 	}
 
 	private static PartyTeam getPartyTeam(CommandContext<CommandSourceStack> context, TeamRank minRank) throws CommandSyntaxException {
 		ServerPlayer player = context.getSource().getPlayerOrException();
 		Team team = FTBTeamsAPI.api().getManager().getTeamForPlayer(player)
-				.orElseThrow(() -> TeamArgument.TEAM_NOT_FOUND.create(player.getUUID()));
+				.orElseThrow(() -> TeamArgumentType.TEAM_NOT_FOUND.create(player.getUUID()));
 
 		if (!(team instanceof PartyTeam partyTeam)) {
-			throw TeamArgument.NOT_IN_PARTY.create();
+			throw TeamArgumentType.NOT_IN_PARTY.create();
 		}
 
 		if (!partyTeam.getRankForPlayer(player.getUUID()).isAtLeast(minRank)) {
-			throw TeamArgument.CANT_EDIT.create(team.getName());
+			throw TeamArgumentType.CANT_EDIT.create(team.getName());
 		}
 
 		return partyTeam;
 	}
 
 	private static Team teamArg(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
-		return TeamArgument.get(context, "team");
+		return TeamArgumentType.getTeam(context, "team");
 	}
 
 	private static Team teamArg(CommandContext<CommandSourceStack> context, Predicate<Team> predicate) throws CommandSyntaxException {
 		Team team = teamArg(context);
 
 		if (!predicate.test(team)) {
-			throw TeamArgument.TEAM_NOT_FOUND.create(team.getName());
+			throw TeamArgumentType.TEAM_NOT_FOUND.create(team.getName());
 		}
 
 		return team;
@@ -325,7 +348,7 @@ public class FTBTeamsCommands {
 		PartyTeam team = (PartyTeam) teamArg(context, Team::isPartyTeam);
 
 		if (rank != TeamRank.NONE && !team.getRankForPlayer(context.getSource().getPlayerOrException().getUUID()).isAtLeast(rank)) {
-			throw TeamArgument.NOT_INVITED.create(team.getName());
+			throw TeamArgumentType.NOT_INVITED.create(team.getName());
 		}
 
 		return team;
@@ -333,13 +356,13 @@ public class FTBTeamsCommands {
 
 	private static int tryCreateParty(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         if (FTBTeamsAPIImpl.INSTANCE.isPartyCreationFromAPIOnly()) {
-            throw TeamArgument.API_OVERRIDE.create();
+            throw TeamArgumentType.API_OVERRIDE.create();
         }
 
         // Die if the command executor isn't a player - eg, the server console, or a command block.
         Entity sourceExecutor = ctx.getSource().getEntity();
         if(!(sourceExecutor instanceof ServerPlayer player)){
-            throw TeamArgument.CALLER_NOT_PLAYER.create();
+            throw TeamArgumentType.CALLER_NOT_PLAYER.create();
         }
 
         // If the incoming command has a "name" parameter, use that. Otherwise, default to ""

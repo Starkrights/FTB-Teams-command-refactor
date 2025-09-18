@@ -15,6 +15,7 @@ import dev.ftb.mods.ftbteams.api.event.PlayerLoggedInAfterTeamEvent;
 import dev.ftb.mods.ftbteams.api.event.TeamEvent;
 import dev.ftb.mods.ftbteams.api.event.TeamManagerEvent;
 import dev.ftb.mods.ftbteams.api.property.TeamProperties;
+import dev.ftb.mods.ftbteams.data.commands.TeamArgumentType;
 import dev.ftb.mods.ftbteams.net.SyncMessageHistoryMessage;
 import dev.ftb.mods.ftbteams.net.SyncTeamsMessage;
 import dev.ftb.mods.ftbteams.net.ToggleChatResponseMessage;
@@ -403,13 +404,13 @@ public class TeamManagerImpl implements TeamManager {
 
 	public Pair<Integer, PartyTeam> createParty(UUID playerId, @Nullable ServerPlayer player, String name, @Nullable String description, @Nullable Color4I color) throws CommandSyntaxException {
 		if (player != null && !FTBTUtils.canPlayerUseCommand(player, "ftbteams.party.create")) {
-			throw TeamArgument.NO_PERMISSION.create();
+			throw TeamArgumentType.NO_PERMISSION.create();
 		}
 
-		Team oldTeam = getTeamForPlayerID(playerId).orElseThrow(() -> TeamArgument.TEAM_NOT_FOUND.create(playerId));
+		Team oldTeam = getTeamForPlayerID(playerId).orElseThrow(() -> TeamArgumentType.TEAM_NOT_FOUND.create(playerId));
 
 		if (!(oldTeam instanceof PlayerTeam playerTeam)) {
-			throw TeamArgument.ALREADY_IN_PARTY.create();
+			throw TeamArgumentType.ALREADY_IN_PARTY.create();
 		}
 
 		PartyTeam team = createPartyTeamInternal(playerId, player, name);
@@ -434,7 +435,7 @@ public class TeamManagerImpl implements TeamManager {
 
 	public Pair<Integer, ServerTeam> createServer(CommandSourceStack source, String name) throws CommandSyntaxException {
 		if (name.length() < 3) {
-			throw TeamArgument.NAME_TOO_SHORT.create();
+			throw TeamArgumentType.NAME_TOO_SHORT.create();
 		}
 		ServerPlayer player = source.getPlayer();
 		UUID playerId = player == null ? Util.NIL_UUID : player.getUUID();
