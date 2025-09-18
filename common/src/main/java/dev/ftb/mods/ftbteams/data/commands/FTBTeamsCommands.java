@@ -21,6 +21,7 @@ import dev.ftb.mods.ftbteams.data.*;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.arguments.GameProfileArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -72,8 +73,6 @@ public class FTBTeamsCommands {
                  * /ftbteams party join {team}
                  *  - Joins the specified team.
                  *  - {team} will be prepopulated with teams the player has active invites to.
-                 *
-                 *  Relevant Function: FTBTeamsCommands::joinParty
                  */
                 .then(Commands.literal("join")
                         .requires(FTBTeamsCommands::hasNoPartyTeam)
@@ -82,7 +81,7 @@ public class FTBTeamsCommands {
                                     // Die if the command executor isn't a player - eg, the server console, or a command block.
                                     Entity sourceExecutor = ctx.getSource().getEntity();
                                     if(!(sourceExecutor instanceof ServerPlayer player)){
-                                        throw TeamArgumentType.CALLER_NOT_PLAYER.create();
+                                        throw EntityArgument.ERROR_ONLY_PLAYERS_ALLOWED.create();
                                     }
 
                                     PartyTeam team = (PartyTeam) TeamArgumentType.getTeam(ctx, "team");
@@ -92,6 +91,29 @@ public class FTBTeamsCommands {
 
                                     // I'm not sure what this return value implies, but I'm keeping it the way it was for now.
                                     return team.join(player);
+                                })
+                        )
+                )
+                /**
+                 * /ftbteams party decline {team}
+                 *  - Declines an invite from the specified team.
+                 *  - {team} will be prepopulated with teams the player has active invites to.
+                 */
+                .then(Commands.literal("decline")
+                        .then(Commands.argument("team", TeamArgumentType.party())
+                                .executes(ctx -> {
+                                    // Die if the command executor isn't a player - eg, the server console, or a command block.
+                                    Entity sourceExecutor = ctx.getSource().getEntity();
+                                    if(!(sourceExecutor instanceof ServerPlayer player)){
+                                        throw EntityArgument.ERROR_ONLY_PLAYERS_ALLOWED.create();
+                                    }
+
+                                    PartyTeam team = (PartyTeam) TeamArgumentType.getTeam(ctx, "team");
+                                    if (team.getRankForPlayer(player.getUUID()) != TeamRank.INVITED){
+                                        throw TeamArgumentType.NOT_INVITED.create(team.getName());
+                                    }
+
+                                    return team.declineInvitation(ctx.getSource());
                                 })
                         )
                 );
@@ -362,7 +384,7 @@ public class FTBTeamsCommands {
         // Die if the command executor isn't a player - eg, the server console, or a command block.
         Entity sourceExecutor = ctx.getSource().getEntity();
         if(!(sourceExecutor instanceof ServerPlayer player)){
-            throw TeamArgumentType.CALLER_NOT_PLAYER.create();
+            throw EntityArgument.ERROR_ONLY_PLAYERS_ALLOWED.create();
         }
 
         // If the incoming command has a "name" parameter, use that. Otherwise, default to ""
