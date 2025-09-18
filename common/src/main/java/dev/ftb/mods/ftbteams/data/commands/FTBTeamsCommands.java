@@ -126,7 +126,7 @@ public class FTBTeamsCommands {
                         )
                 )
                 .then(Commands.literal("leave")
-                        .requires(ctx -> Predicates.hasPartyAndMinRank(ctx, TeamRank.MEMBER)) // Potential TODO: add thin predicates, convert to Method Reference
+                        .requires(Predicates::hasPartyAndIsMember)
                         .executes(ctx -> {
                             // Die if the command executor isn't a player - eg, the server console, or a command block.
                             Entity sourceExecutor = ctx.getSource().getEntity();
@@ -327,6 +327,20 @@ public class FTBTeamsCommands {
                 return FTBTeamsAPI.api().getManager().getTeamForPlayerID(source.getEntity().getUUID())
                         .map(team -> !team.isPartyTeam())
                         .orElse(false);
+            }
+
+            return false;
+        }
+
+        private static boolean hasPartyAndIsMember(CommandSourceStack ctx){
+            if (ctx.getEntity() instanceof ServerPlayer player){
+                Team team = TeamManagerImpl.INSTANCE.getTeamForPlayer(player).orElse(null);
+                if (team == null){
+                    return false;
+                }
+                else if (team.isPartyTeam()){
+                    return team.getRankForPlayer(player.getUUID()).isMemberOrBetter();
+                }
             }
 
             return false;
